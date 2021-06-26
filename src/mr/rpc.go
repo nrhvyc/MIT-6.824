@@ -40,27 +40,28 @@ type AssignReduceTaskArgs struct {
 }
 
 type AssignReduceTaskReply struct {
-	IntermediateFileName *string // File name of an as-yet-unstarted map task, nil if no task to assign
-	TaskNumber           int
+	TaskNumber  int
+	Phase       Phase // Reduce or Done Phase?
+	NumMapTasks int
 }
 
-type UpdateMapTaskStatusArgs struct {
+type MapTaskStatusArgs struct {
 	Status                Status
 	IntermediateFileNames []string
 	InputFileName         string
 	TaskNumber            int
 }
 
-type UpdateMapTaskStatusReply struct {
+type MapTaskStatusReply struct {
 }
 
-type UpdateReduceTaskStatusArgs struct {
-	Status          Status
-	OutputFileNames []string
-	TaskNumber      int
+type ReduceTaskStatusArgs struct {
+	Status         Status
+	OutputFileName string
+	TaskNumber     int
 }
 
-type UpdateReduceTaskStatusReply struct {
+type ReduceTaskStatusReply struct {
 }
 
 // Add your RPC definitions here.

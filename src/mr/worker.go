@@ -49,7 +49,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 	// Map Phase
 	for {
 		// Get a task
-		taskReply := CallMapAssignTask()
+		taskReply := CallAssignMapTask()
 		if taskReply.Phase == ReducePhase {
 			break
 		}
@@ -63,26 +63,80 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 		intermediateFileNames, err := mapTask(mapf, taskReply)
 		if err != nil {
 			fmt.Printf("mapTask failed with err: %s", err)
-			CallUpdateMapTaskStatus(UpdateMapTaskStatusArgs{Status: Idle})
+			CallMapTaskStatus(MapTaskStatusArgs{Status: Idle})
 		} else {
-			CallUpdateMapTaskStatus(UpdateMapTaskStatusArgs{
+			CallMapTaskStatus(MapTaskStatusArgs{
 				Status:                Completed,
 				IntermediateFileNames: intermediateFileNames,
 			})
 		}
 	}
 
-	// Reduce Phase
-	// Extract values for a specific key
-	// values := []string{}
-	// for k := i; k < j; k++ {
-	// 	values = append(values, intermediate[k].Value)
-	// }
+	for {
+		// Get a task
+		taskReply := CallAssignReduceTask()
+		if taskReply.Phase == DonePhase {
+			break
+		}
 
-	// output := reducef(intermediate[i].Key, values)
+		fmt.Printf("taskReply.TaskNumber: %s", taskReply.TaskNumber)
 
-	// this is the correct format for each line of Reduce output.
-	// fmt.Fprintf(ofile, "%v %v\n", intermediate[i].Key, output)
+		reduceTaskNumber := taskReply.TaskNumber
+
+		var intermediate []KeyValue
+
+		// Read from intermediate files and read into []KeyValue
+		for m := 0; m < taskReply.NumMapTasks; m++ {
+			intermediateFileName := fmt.Sprintf("mr-%d-%d", m, reduceTaskNumber)
+
+			intermediateFile, err := os.Open(intermediateFileName)
+			if err != nil {
+				fmt.Printf("error opening intermediate file err: %s", err)
+			}
+			dec := json.NewDecoder(intermediateFile)
+			for {
+				var kv KeyValue
+				if err := dec.Decode(&kv); err != nil {
+					break
+				}
+				intermediate = append(intermediate, kv)
+			}
+		}
+
+		outputFileName := fmt.Sprintf("mr-out-%d", reduceTaskNumber)
+		outputFile, _ := os.Create(outputFileName)
+
+		//
+		// call Reduce on each distinct key in intermediate[],
+		// and print the result to mr-out-0.
+		//
+		i := 0
+		for i < len(intermediate) {
+			j := i + 1
+			for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
+				j++
+			}
+			values := []string{}
+			for k := i; k < j; k++ {
+				values = append(values, intermediate[k].Value)
+			}
+			output := reducef(intermediate[i].Key, values)
+
+			// this is the correct format for each line of Reduce output.
+			fmt.Fprintf(outputFile, "%v %v\n", intermediate[i].Key, output)
+
+			i = j
+		}
+
+		outputFile.Close()
+
+		CallReduceTaskStatus(ReduceTaskStatusArgs{
+			Status:         Completed,
+			OutputFileName: outputFileName,
+			TaskNumber:     reduceTaskNumber,
+		})
+	}
+	return
 }
 
 func mapTask(mapf func(string, string) []KeyValue, task AssignMapTaskReply) ([]string, error) {
@@ -153,14 +207,25 @@ func mapTask(mapf func(string, string) []KeyValue, task AssignMapTaskReply) ([]s
 	return intermediateFileNames, nil
 }
 
-func CallMapAssignTask() (reply AssignMapTaskReply) {
+func CallAssignMapTask() (reply AssignMapTaskReply) {
 	assignTask := AssignMapTaskArgs{}
-	call("Coordinator.GiveTask", &assignTask, &reply)
+	call("Coordinator.AssignMapTask", &assignTask, &reply)
 	return
 }
 
-func CallUpdateMapTaskStatus(args UpdateMapTaskStatusArgs) (reply UpdateMapTaskStatusReply) {
-	call("Coordinator.UpdateTaskStatus", &args, &reply)
+func CallMapTaskStatus(args MapTaskStatusArgs) (reply MapTaskStatusReply) {
+	call("Coordinator.MapTaskStatus", &args, &reply)
+	return
+}
+
+func CallAssignReduceTask() (reply AssignReduceTaskReply) {
+	assignTask := AssignMapTaskArgs{}
+	call("Coordinator.AssignReduceTask", &assignTask, &reply)
+	return
+}
+
+func CallReduceTaskStatus(args ReduceTaskStatusArgs) (reply ReduceTaskStatusReply) {
+	call("Coordinator.ReduceTaskStatus", &args, &reply)
 	return
 }
 
@@ -209,20 +274,3 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 	fmt.Println(err)
 	return false
 }
-
-// /*
-// 	Mapper processes a key/value pair to generate a set of intermediate key/value pairs
-// 	- write mapped KeyValue pairs to files
-// */
-// func mapper(input KeyValue) (intermediates []KeyValue) {
-// 	return
-// }
-
-// /*
-// 	Reducer merges all intermediate values associated with the same intermediate key
-// 	- fetch all other intermediate values for a specific key from other workers
-// 	- once all values have been fetched, reduce to output file
-// */
-// func reducer(key string, intermediates []KeyValue) (output []string) {
-// 	return
-// }

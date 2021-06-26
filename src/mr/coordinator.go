@@ -74,29 +74,25 @@ func (c *Coordinator) AssignMapTask(args *AssignMapTaskArgs, reply *AssignMapTas
 }
 
 func (c *Coordinator) AssignReduceTask(args *AssignReduceTaskArgs, reply *AssignReduceTaskReply) (err error) {
-	// TODO:
-	// 1. assign input files for map tasks
-	// 2. once all map jobs complete, assign reduce tasks
 	if c.Phase != ReducePhase {
 		return
 	}
 
-	// c.Lock()
-	// for idx, file := range c.InputFiles {
-	// 	// Skip any currently assigned tasks, but in future if task above threshold then reassign
-	// 	if file.IsAssigned {
-	// 		continue
-	// 	}
-	// 	reply.FileName = &file.FileName
-	// 	reply.TaskType = "Map"
-	// 	reply.TaskNumber = idx
-	// }
-	// c.Unlock()
+	c.Lock()
+	for i := 0; i < c.NumReduce; i++ {
+		// Skip any currently assigned tasks, but in future if task above threshold then reassign
+		reply = &AssignReduceTaskReply{
+			TaskNumber:  i,
+			Phase:       c.Phase,
+			NumMapTasks: len(c.MapTasks),
+		}
+	}
+	c.Unlock()
 	return
 }
 
-// UpdateMapTaskStatus - if ran distributed, information about the intermediate keys would be passed to coordinator
-func (c *Coordinator) UpdateMapTaskStatus(args *UpdateMapTaskStatusArgs, reply *UpdateMapTaskStatusReply) (err error) {
+// MapTaskStatus - if ran distributed, information about the intermediate keys would be passed to coordinator
+func (c *Coordinator) MapTaskStatus(args *MapTaskStatusArgs, reply *MapTaskStatusReply) (err error) {
 	c.Lock()
 	c.MapTasks[args.InputFileName].TaskStatus = args.Status
 
@@ -110,8 +106,8 @@ func (c *Coordinator) UpdateMapTaskStatus(args *UpdateMapTaskStatusArgs, reply *
 	return
 }
 
-// UpdateReduceTaskStatus
-func (c *Coordinator) UpdateReduceTaskStatus(args *UpdateReduceTaskStatusArgs, reply *UpdateReduceTaskStatusReply) (err error) {
+// ReduceTaskStatus
+func (c *Coordinator) ReduceTaskStatus(args *ReduceTaskStatusArgs, reply *ReduceTaskStatusReply) (err error) {
 	c.Lock()
 	c.ReduceTasks[args.TaskNumber].TaskStatus = args.Status
 
@@ -119,7 +115,7 @@ func (c *Coordinator) UpdateReduceTaskStatus(args *UpdateReduceTaskStatusArgs, r
 		c.ReduceTasksLeft -= 1
 	}
 	if c.ReduceTasksLeft <= 0 {
-		c.Phase = ReducePhase
+		c.Phase = DonePhase
 	}
 	c.Unlock()
 	return
