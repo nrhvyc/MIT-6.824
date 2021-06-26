@@ -1,29 +1,129 @@
 package mr
 
-import "log"
-import "net"
-import "os"
-import "net/rpc"
-import "net/http"
+import (
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"net/rpc"
+	"os"
+	"sync"
+	"time"
+)
 
+type (
+	Coordinator struct {
+		sync.Mutex
+		MapTasks        map[string]*MapTask // Key is InputFileName
+		ReduceTasks     []ReduceTask
+		NumReduce       int   // How many output files to produce from reduce tasks
+		Phase           Phase // Map, Reduce, or Done?
+		MapTasksLeft    int   // Counts down from Map tasks completed
+		ReduceTasksLeft int   // Counts down from Reduce tasks completed
+	}
 
-type Coordinator struct {
-	// Your definitions here.
+	MapTask struct {
+		TaskStatus           Status
+		IntermediateFileName string
+		TaskStartTime        time.Time
+		InputFileIndex       int
+	}
 
+	ReduceTask struct {
+		TaskStatus           Status
+		IntermediateFileName string
+		OutputFileName       string
+		TaskStartTime        time.Time
+	}
+
+	Phase  int // enum
+	Status int // enum
+)
+
+const (
+	Idle    Status = iota
+	Running        // could be assigned to more than one worker later
+	Completed
+	MapPhase Phase = iota
+	ReducePhase
+	DonePhase
+)
+
+func (c *Coordinator) AssignMapTask(args *AssignMapTaskArgs, reply *AssignMapTaskReply) (err error) {
+	if c.Phase != MapPhase {
+		reply.Phase = ReducePhase
+		return
+	}
+
+	c.Lock()
+	for inputFileName, mapTask := range c.MapTasks {
+		// Skip any currently assigned tasks,
+		// but in future if task time above threshold then reassign
+		if mapTask.TaskStatus == Idle {
+			reply.InputFileName = &inputFileName
+			reply.InputFileIndex = mapTask.InputFileIndex
+			reply.Phase = MapPhase
+			reply.NumReduce = c.NumReduce
+
+			c.MapTasks[inputFileName].TaskStatus = Running
+		}
+	}
+	c.Unlock()
+
+	return
 }
 
-// Your code here -- RPC handlers for the worker to call.
+func (c *Coordinator) AssignReduceTask(args *AssignReduceTaskArgs, reply *AssignReduceTaskReply) (err error) {
+	// TODO:
+	// 1. assign input files for map tasks
+	// 2. once all map jobs complete, assign reduce tasks
+	if c.Phase != ReducePhase {
+		return
+	}
 
-//
-// an example RPC handler.
-//
-// the RPC argument and reply types are defined in rpc.go.
-//
-func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
-	reply.Y = args.X + 1
-	return nil
+	// c.Lock()
+	// for idx, file := range c.InputFiles {
+	// 	// Skip any currently assigned tasks, but in future if task above threshold then reassign
+	// 	if file.IsAssigned {
+	// 		continue
+	// 	}
+	// 	reply.FileName = &file.FileName
+	// 	reply.TaskType = "Map"
+	// 	reply.TaskNumber = idx
+	// }
+	// c.Unlock()
+	return
 }
 
+// UpdateMapTaskStatus - if ran distributed, information about the intermediate keys would be passed to coordinator
+func (c *Coordinator) UpdateMapTaskStatus(args *UpdateMapTaskStatusArgs, reply *UpdateMapTaskStatusReply) (err error) {
+	c.Lock()
+	c.MapTasks[args.InputFileName].TaskStatus = args.Status
+
+	if args.Status == Completed {
+		c.MapTasksLeft -= 1
+	}
+	if c.MapTasksLeft <= 0 {
+		c.Phase = ReducePhase
+	}
+	c.Unlock()
+	return
+}
+
+// UpdateReduceTaskStatus
+func (c *Coordinator) UpdateReduceTaskStatus(args *UpdateReduceTaskStatusArgs, reply *UpdateReduceTaskStatusReply) (err error) {
+	c.Lock()
+	c.ReduceTasks[args.TaskNumber].TaskStatus = args.Status
+
+	if args.Status == Completed {
+		c.ReduceTasksLeft -= 1
+	}
+	if c.ReduceTasksLeft <= 0 {
+		c.Phase = ReducePhase
+	}
+	c.Unlock()
+	return
+}
 
 //
 // start a thread that listens for RPCs from worker.go
@@ -46,12 +146,11 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 //
 func (c *Coordinator) Done() bool {
-	ret := false
+	if c.Phase == DonePhase {
+		return true
+	}
 
-	// Your code here.
-
-
-	return ret
+	return false
 }
 
 //
@@ -62,9 +161,17 @@ func (c *Coordinator) Done() bool {
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 
-	// Your code here.
+	fmt.Println("Initialize coordinator...")
+	for idx, fileName := range files {
+		c.MapTasks[fileName] = &MapTask{InputFileIndex: idx}
+	}
+	c.NumReduce = nReduce
+	c.MapTasksLeft = len(files)
+	c.ReduceTasksLeft = nReduce
 
+	fmt.Println("Initialized.")
 
+	fmt.Println("Listening for workers...")
 	c.server()
 	return &c
 }
