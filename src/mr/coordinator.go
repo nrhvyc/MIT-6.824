@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	"net/rpc"
-	"os"
 	"sync"
 	"time"
 )
@@ -30,10 +29,10 @@ type (
 	}
 
 	ReduceTask struct {
-		TaskStatus           Status
-		IntermediateFileName string
-		OutputFileName       string
-		TaskStartTime        time.Time
+		TaskStatus Status
+		// IntermediateFileName string
+		// OutputFileName string
+		TaskStartTime time.Time
 	}
 
 	Phase  int // enum
@@ -44,6 +43,8 @@ const (
 	Idle    Status = iota
 	Running        // could be assigned to more than one worker later
 	Completed
+)
+const (
 	MapPhase Phase = iota
 	ReducePhase
 	DonePhase
@@ -66,6 +67,7 @@ func (c *Coordinator) AssignMapTask(args *AssignMapTaskArgs, reply *AssignMapTas
 			reply.NumReduce = c.NumReduce
 
 			c.MapTasks[inputFileName].TaskStatus = Running
+			break
 		}
 	}
 	c.Unlock()
@@ -81,10 +83,11 @@ func (c *Coordinator) AssignReduceTask(args *AssignReduceTaskArgs, reply *Assign
 	c.Lock()
 	for i := 0; i < c.NumReduce; i++ {
 		// Skip any currently assigned tasks, but in future if task above threshold then reassign
-		reply = &AssignReduceTaskReply{
-			TaskNumber:  i,
-			Phase:       c.Phase,
-			NumMapTasks: len(c.MapTasks),
+		if c.ReduceTasks[i].TaskStatus == Idle {
+			reply.TaskNumber = i
+			reply.Phase = c.Phase
+			reply.NumMapTasks = len(c.MapTasks)
+			c.ReduceTasks[i].TaskStatus = Running
 		}
 	}
 	c.Unlock()
@@ -127,10 +130,10 @@ func (c *Coordinator) ReduceTaskStatus(args *ReduceTaskStatusArgs, reply *Reduce
 func (c *Coordinator) server() {
 	rpc.Register(c)
 	rpc.HandleHTTP()
-	//l, e := net.Listen("tcp", ":1234")
-	sockname := coordinatorSock()
-	os.Remove(sockname)
-	l, e := net.Listen("unix", sockname)
+	l, e := net.Listen("tcp", ":1235")
+	// sockname := coordinatorSock()
+	// os.Remove(sockname)
+	// l, e := net.Listen("unix", sockname)
 	if e != nil {
 		log.Fatal("listen error:", e)
 	}
@@ -158,12 +161,16 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 
 	fmt.Println("Initialize coordinator...")
+	// fileNames := filepath.Glob(files)
+
+	c.MapTasks = make(map[string]*MapTask)
 	for idx, fileName := range files {
 		c.MapTasks[fileName] = &MapTask{InputFileIndex: idx}
 	}
 	c.NumReduce = nReduce
 	c.MapTasksLeft = len(files)
 	c.ReduceTasksLeft = nReduce
+	c.ReduceTasks = make([]ReduceTask, nReduce)
 
 	fmt.Println("Initialized.")
 

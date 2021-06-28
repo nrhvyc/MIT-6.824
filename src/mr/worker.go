@@ -47,6 +47,7 @@ func ihash(key string) int {
 //
 func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
 	// Map Phase
+	fmt.Println("Starting Map Phase")
 	for {
 		// Get a task
 		taskReply := CallAssignMapTask()
@@ -65,21 +66,26 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 			fmt.Printf("mapTask failed with err: %s", err)
 			CallMapTaskStatus(MapTaskStatusArgs{Status: Idle})
 		} else {
+			fmt.Println("completed map task")
 			CallMapTaskStatus(MapTaskStatusArgs{
 				Status:                Completed,
 				IntermediateFileNames: intermediateFileNames,
+				InputFileName:         *taskReply.InputFileName,
 			})
 		}
 	}
+	fmt.Println("Completed Map Phase")
 
+	// Reduce Phase
 	for {
 		// Get a task
 		taskReply := CallAssignReduceTask()
 		if taskReply.Phase == DonePhase {
 			break
 		}
+		fmt.Printf("ReduceTask -> %+v\n", taskReply)
 
-		fmt.Printf("taskReply.TaskNumber: %s", taskReply.TaskNumber)
+		fmt.Printf("taskReply.TaskNumber: %d", taskReply.TaskNumber)
 
 		reduceTaskNumber := taskReply.TaskNumber
 
@@ -136,11 +142,10 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 			TaskNumber:     reduceTaskNumber,
 		})
 	}
-	return
 }
 
 func mapTask(mapf func(string, string) []KeyValue, task AssignMapTaskReply) ([]string, error) {
-	fmt.Printf("mapTask()->task: %+v", task)
+	fmt.Printf("MapTask -> %+v\n", task)
 
 	// Read input file
 	file, err := os.Open(*task.InputFileName)
@@ -159,11 +164,12 @@ func mapTask(mapf func(string, string) []KeyValue, task AssignMapTaskReply) ([]s
 	sort.Sort(ByKey(intermediate))
 
 	// Keys are the intermediate file names
-	var buckets [][]KeyValue
+	buckets := make([][]KeyValue, task.NumReduce)
 
 	// Init keys
 	for i := 0; i < task.NumReduce; i++ {
-		buckets[i] = []KeyValue{}
+		// buckets[i] = []KeyValue{}
+		buckets[i] = make([]KeyValue, 0)
 	}
 
 	// Partition into buckets for reduce
@@ -258,9 +264,9 @@ func CallExample() {
 // returns false if something goes wrong.
 //
 func call(rpcname string, args interface{}, reply interface{}) bool {
-	// c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
-	sockname := coordinatorSock()
-	c, err := rpc.DialHTTP("unix", sockname)
+	c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1235")
+	// sockname := coordinatorSock()
+	// c, err := rpc.DialHTTP("unix", sockname)
 	if err != nil {
 		log.Fatal("dialing:", err)
 	}
