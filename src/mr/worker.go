@@ -47,7 +47,7 @@ func ihash(key string) int {
 //
 func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
 	// Map Phase
-	fmt.Println("Starting Map Phase")
+	// fmt.Println("Starting Map Phase")
 	for {
 		// Get a task
 		taskReply := CallAssignMapTask()
@@ -63,10 +63,10 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 		// Report to the coordinator about task
 		intermediateFileNames, err := mapTask(mapf, taskReply)
 		if err != nil {
-			fmt.Printf("mapTask failed with err: %s", err)
+			// fmt.Printf("mapTask failed with err: %s", err)
 			CallMapTaskStatus(MapTaskStatusArgs{Status: Idle})
 		} else {
-			fmt.Println("completed map task")
+			// fmt.Println("completed map task")
 			CallMapTaskStatus(MapTaskStatusArgs{
 				Status:                Completed,
 				IntermediateFileNames: intermediateFileNames,
@@ -74,7 +74,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 			})
 		}
 	}
-	fmt.Println("Completed Map Phase")
+	// fmt.Println("Completed Map Phase")
 
 	// Reduce Phase
 	for {
@@ -83,9 +83,12 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 		if taskReply.Phase == DonePhase {
 			break
 		}
-		fmt.Printf("ReduceTask -> %+v\n", taskReply)
-
-		fmt.Printf("taskReply.TaskNumber: %d", taskReply.TaskNumber)
+		emptyReply := AssignReduceTaskReply{}
+		if taskReply == emptyReply {
+			time.Sleep(time.Second)
+			continue
+		}
+		// fmt.Printf("ReduceTask -> %+v\n", taskReply)
 
 		reduceTaskNumber := taskReply.TaskNumber
 
@@ -97,7 +100,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 
 			intermediateFile, err := os.Open(intermediateFileName)
 			if err != nil {
-				fmt.Printf("error opening intermediate file err: %s", err)
+				// fmt.Printf("error opening intermediate file err: %s", err)
 			}
 			dec := json.NewDecoder(intermediateFile)
 			for {
@@ -145,7 +148,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 }
 
 func mapTask(mapf func(string, string) []KeyValue, task AssignMapTaskReply) ([]string, error) {
-	fmt.Printf("MapTask -> %+v\n", task)
+	// fmt.Printf("MapTask -> %+v\n", task)
 
 	// Read input file
 	file, err := os.Open(*task.InputFileName)
@@ -255,7 +258,7 @@ func CallExample() {
 	call("Coordinator.Example", &args, &reply)
 
 	// reply.Y should be 100.
-	fmt.Printf("reply.Y %v\n", reply.Y)
+	// fmt.Printf("reply.Y %v\n", reply.Y)
 }
 
 //

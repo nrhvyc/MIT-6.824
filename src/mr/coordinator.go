@@ -1,7 +1,6 @@
 package mr
 
 import (
-	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -51,12 +50,12 @@ const (
 )
 
 func (c *Coordinator) AssignMapTask(args *AssignMapTaskArgs, reply *AssignMapTaskReply) (err error) {
+	c.Lock()
 	if c.Phase != MapPhase {
 		reply.Phase = ReducePhase
 		return
 	}
 
-	c.Lock()
 	for inputFileName, mapTask := range c.MapTasks {
 		// Skip any currently assigned tasks,
 		// but in future if task time above threshold then reassign
@@ -76,11 +75,11 @@ func (c *Coordinator) AssignMapTask(args *AssignMapTaskArgs, reply *AssignMapTas
 }
 
 func (c *Coordinator) AssignReduceTask(args *AssignReduceTaskArgs, reply *AssignReduceTaskReply) (err error) {
+	c.Lock()
 	if c.Phase != ReducePhase {
 		return
 	}
 
-	c.Lock()
 	for i := 0; i < c.NumReduce; i++ {
 		// Skip any currently assigned tasks, but in future if task above threshold then reassign
 		if c.ReduceTasks[i].TaskStatus == Idle {
@@ -88,6 +87,7 @@ func (c *Coordinator) AssignReduceTask(args *AssignReduceTaskArgs, reply *Assign
 			reply.Phase = c.Phase
 			reply.NumMapTasks = len(c.MapTasks)
 			c.ReduceTasks[i].TaskStatus = Running
+			break
 		}
 	}
 	c.Unlock()
@@ -145,9 +145,11 @@ func (c *Coordinator) server() {
 // if the entire job has finished.
 //
 func (c *Coordinator) Done() bool {
+	c.Lock()
 	if c.Phase == DonePhase {
 		return true
 	}
+	c.Unlock()
 
 	return false
 }
@@ -160,9 +162,10 @@ func (c *Coordinator) Done() bool {
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 
-	fmt.Println("Initialize coordinator...")
+	// fmt.Println("Initialize coordinator...")
 	// fileNames := filepath.Glob(files)
 
+	c.Lock()
 	c.MapTasks = make(map[string]*MapTask)
 	for idx, fileName := range files {
 		c.MapTasks[fileName] = &MapTask{InputFileIndex: idx}
@@ -172,9 +175,10 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c.ReduceTasksLeft = nReduce
 	c.ReduceTasks = make([]ReduceTask, nReduce)
 
-	fmt.Println("Initialized.")
+	// fmt.Println("Initialized.")
 
-	fmt.Println("Listening for workers...")
+	// fmt.Println("Listening for workers...")
+	c.Unlock()
 	c.server()
 	return &c
 }
